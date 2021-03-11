@@ -45,7 +45,7 @@ class MRSignal():
         
         self.RFsignal = np.zeros(len(self.t))
         for i in range(0,self.Nsignals):
-            f = np.linspace(self.larmor,self.larmor_end,len(self.t)) - self.BW/2 + self.BW/2 * i / self.Nsignals
+            f = self.larmor
             self.RFsignal = self.RFsignal + np.sin(2*np.pi*np.multiply(f,self.t))
         self.RFsignal = np.roll(self.RFsignal,self.rollN)
         self.RFsignal = self.RFsignal * np.exp(-self.t/self.T2)
@@ -98,8 +98,8 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.pushButton_2.clicked.connect(self.togglePages)
         self.pushButton_3.clicked.connect(self.togglePages)
 #         self.checkBox.stateChanged.connect(self.enableGradientRamp)
-        self.region = pg.LinearRegionItem(values=(0.001,0.001001))
-        self.region2 = pg.LinearRegionItem(values=(0.005,0.005001),brush=(255,0,0,50))
+        self.region = pg.LinearRegionItem(values=(0,0.01))
+        self.region2 = pg.LinearRegionItem(values=(0,0.01),brush=(255,0,0,50))
 #         self.region.sigRegionChanged.connect(self.setRegionTextBox)
 #         self.region2.sigRegionChanged.connect(self.setRegionTextBox)
         self.lineEdit_33.textChanged.connect(self.setRegionGraphics)
@@ -155,6 +155,7 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
     def zeroPad(self,array):
         zeros = np.zeros(self.Nbox)
         array = np.concatenate((array,zeros))
+        array = np.concatenate((zeros,array))
         return array
         
     def LPfilter(self):
@@ -164,10 +165,11 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
             self.signal.Q = self.zeroPad(self.signal.Q)
             self.signal2.I = self.zeroPad(self.signal2.I)
             self.signal2.Q = self.zeroPad(self.signal2.Q)
-            self.signal.I = np.convolve(np.ones(self.Nbox)/self.Nbox,self.signal.I,mode='valid')[np.int(self.Nbox/2):np.int(len(self.signal.t)+self.Nbox/2)]
-            self.signal.Q = np.convolve(np.ones(self.Nbox)/self.Nbox,self.signal.Q,mode='valid')[np.int(self.Nbox/2):np.int(len(self.signal.t)+self.Nbox/2)]
-            self.signal2.I = np.convolve(np.ones(self.Nbox)/self.Nbox,self.signal2.I,mode='valid')[np.int(self.Nbox/2):np.int(len(self.signal2.t)+self.Nbox/2)]
-            self.signal2.Q = np.convolve(np.ones(self.Nbox)/self.Nbox,self.signal2.Q,mode='valid')[np.int(self.Nbox/2):np.int(len(self.signal2.t)+self.Nbox/2)]
+            conv = np.ones(self.Nbox)/self.Nbox
+            self.signal.I = np.convolve(conv,self.signal.I,mode='valid')[np.int(self.Nbox/2):np.int(len(self.signal.t)+self.Nbox/2)]
+            self.signal.Q = np.convolve(conv,self.signal.Q,mode='valid')[np.int(self.Nbox/2):np.int(len(self.signal.t)+self.Nbox/2)]
+            self.signal2.I = np.convolve(conv,self.signal2.I,mode='valid')[np.int(self.Nbox/2):np.int(len(self.signal2.t)+self.Nbox/2)]
+            self.signal2.Q = np.convolve(conv,self.signal2.Q,mode='valid')[np.int(self.Nbox/2):np.int(len(self.signal2.t)+self.Nbox/2)]
 
     def updateParameters(self):
         self.signal.larmor = np.double(self.lineEdit_3.text())
@@ -248,10 +250,10 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.lineEdit_8.setText('100e3')
         self.lineEdit_9.setText('100')
         self.lineEdit_14.setText('0')
-        self.lineEdit_33.setText('0.001')
-        self.lineEdit_34.setText('0.001001')
-        self.lineEdit_36.setText('0.005')
-        self.lineEdit_35.setText('0.005001')
+        self.lineEdit_33.setText('0')
+        self.lineEdit_34.setText('0.001')
+        self.lineEdit_36.setText('0')
+        self.lineEdit_35.setText('0.001')
 def main():
     app = QtWidgets.QApplication(sys.argv)  # A new instance of QApplication
     app.setStyleSheet(qdarkstyle.load_stylesheet(pyside = False))
