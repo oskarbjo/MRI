@@ -44,12 +44,13 @@ class MRSignal():
         self.t1 = 0
         self.gyroMagneticRatio = 127.74e6/3 #Hz/T
         self.doLowPass = True
+        self.Probe = Probe()
+        self.RGB = 1000
 #         self.generateRFSignal()
         
     def generateRFSignal(self,Bfield,Probe):
         
         self.t = np.arange(0,(self.t1-self.t0),self.dt) #Always starts from zero for each new excitation!
-#         self.t = self.t[0:int((self.t1-self.t0)/self.dt)] #Fixing some kind of rounding error
         Gx_temp=interp1d(Bfield.xGradientWaveform[0,:],Bfield.xGradientWaveform[1,:])
         Gy_temp=interp1d(Bfield.yGradientWaveform[0,:],Bfield.yGradientWaveform[1,:])
         xPos_temp=interp1d(Probe.xPos[0,:],Probe.xPos[1,:])
@@ -133,11 +134,10 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
     def __init__(self):
         
         self.Bfield = Field()
-        self.Probe = []
         self.FIDpointer = 0
         self.FIDs = []
+        #Some setup:
         self.FIDs.append(MRSignal())
-        self.setupProbes() #dummy
 
         super(self.__class__, self).__init__()
         self.setupUi(self)  # This is defined in design.py file automatically
@@ -201,6 +201,8 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.FIDs.append(MRSignal())
         self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
         self.FIDpointer = len(self.FIDs)-1
+        self.FIDs[self.FIDpointer].Probe.xPos[1,:] = self.FIDs[self.FIDpointer].Probe.xPos[1,:]*(-1)
+        self.FIDs[self.FIDpointer].Probe.yPos[1,:] = self.FIDs[self.FIDpointer].Probe.yPos[1,:]
         self.FIDs[self.FIDpointer].t0 = 0.0048
         self.FIDs[self.FIDpointer].t1 = 0.005
         self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
@@ -209,6 +211,8 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.FIDs.append(MRSignal())
         self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
         self.FIDpointer = len(self.FIDs)-1
+        self.FIDs[self.FIDpointer].Probe.xPos[1,:] = self.FIDs[self.FIDpointer].Probe.xPos[1,:]*(-1)
+        self.FIDs[self.FIDpointer].Probe.yPos[1,:] = self.FIDs[self.FIDpointer].Probe.yPos[1,:]*(-1)
         self.FIDs[self.FIDpointer].t0 = 0.0055
         self.FIDs[self.FIDpointer].t1 = 0.0057
         self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
@@ -218,26 +222,31 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.FIDs.append(MRSignal())
         self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
         self.FIDpointer = len(self.FIDs)-1
+        self.FIDs[self.FIDpointer].Probe.xPos[1,:] = self.FIDs[self.FIDpointer].Probe.xPos[1,:]*0
+        self.FIDs[self.FIDpointer].Probe.yPos[1,:] = self.FIDs[self.FIDpointer].Probe.yPos[1,:]*0
         self.FIDs[self.FIDpointer].t0 = 0.0055
         self.FIDs[self.FIDpointer].t1 = 0.0057
         self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
         self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
         self.updateParameters()
         
-    def setupProbes(self):
-        #Dummy function for setting up 3 static probe positions
-        for i in range(0,4):
-            self.Probe.append(Probe())
-            
-        self.Probe[1].xPos[1,:] = self.Probe[0].xPos[1,:]*(-1)
-        self.Probe[1].yPos[1,:] = self.Probe[0].yPos[1,:]
-        self.Probe[2].xPos[1,:] = self.Probe[0].xPos[1,:]*(-1)
-        self.Probe[2].yPos[1,:] = self.Probe[0].yPos[1,:]*(-1)
-        self.Probe[3].xPos[1,:] = self.Probe[0].xPos[1,:]*0
-        self.Probe[3].yPos[1,:] = self.Probe[0].yPos[1,:]*0
+#     def setupProbes(self):
+#         #Dummy function for setting up 3 static probe positions
+#         for i in range(0,4):
+#             self.FIDs[self.FIDpointer].Probe.append(Probe())
+#             
+#         self.FIDs[self.FIDpointer].Probe[1].xPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].xPos[1,:]*(-1)
+#         self.FIDs[self.FIDpointer].Probe[1].yPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].yPos[1,:]
+#         self.FIDs[self.FIDpointer].Probe[2].xPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].xPos[1,:]*(-1)
+#         self.FIDs[self.FIDpointer].Probe[2].yPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].yPos[1,:]*(-1)
+#         self.FIDs[self.FIDpointer].Probe[3].xPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].xPos[1,:]*0
+#         self.FIDs[self.FIDpointer].Probe[3].yPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].yPos[1,:]*0
     
     def setCurrentFID(self):
         self.FIDpointer=self.listWidget.currentRow()
+        for i in np.arange(0,len(self.FIDs)):
+            self.FIDs[i].RGB = 1000
+        self.FIDs[self.FIDpointer].RGB = 5000
         self.setLineEdit()
     
     def addFID(self):
@@ -296,7 +305,7 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.FIDs[self.FIDpointer].dt = np.double(self.lineEdit_4.text())
         self.FIDs[self.FIDpointer].t0 = np.double(self.lineEdit_33.text())/1e3
         self.FIDs[self.FIDpointer].t1 = np.double(self.lineEdit_34.text())/1e3
-        self.FIDs[self.FIDpointer].generateRFSignal(self.Bfield,self.Probe[self.FIDpointer])
+        self.FIDs[self.FIDpointer].generateRFSignal(self.Bfield,self.FIDs[self.FIDpointer].Probe)
         self.LPfilter()
         self.FIDs[self.FIDpointer].calculatePhase()
         if len(self.FIDs)>3:
@@ -311,6 +320,8 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.graphicsView_2.clear()
         self.graphicsView_3.clear()
         self.graphicsView_4.clear()
+        self.graphicsView_6.clear()
+        self.graphicsView_7.clear()
         
         self.graphicsView.plot(self.FIDs[self.FIDpointer].t, self.FIDs[self.FIDpointer].RFsignal,pen=pg.mkPen('r', width=1))
         if self.checkBox_6.isChecked():
@@ -323,16 +334,14 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         for x in self.FIDs:
             self.graphicsView_4.plot(x.t,x.phase,pen=pg.mkPen('r', width=1))
             self.graphicsView_4.plot(x.t,x.c2 * x.t**2 + x.c1*x.t + x.c0,pen=pg.mkPen('g', width=1))
-            self.graphicsView_6.plot(x.fft_freq,np.flip(20*np.log10(np.abs(x.fft[0:len(x.fft_freq)]))),pen=pg.mkPen('r', width=1))
-            
+            self.graphicsView_6.plot(x.fft_freq,20*np.log10(np.abs(x.fft[0:len(x.fft_freq)])),pen=pg.mkPen(x.RGB, width=1))
+            self.graphicsView_7.plot(x.Probe.xPos[1,:],x.Probe.yPos[1,:], symbol='o',symbolBrush=x.RGB,pen=pg.mkPen(x.RGB, width=1))
+#             self.graphicsView_7.plot(x.Probe.xPos[1,:],x.Probe.yPos[1,:])
             
         self.graphicsView_5.plot(self.Bfield.xGradientWaveform[0,:]*1e3,self.Bfield.xGradientWaveform[1,:],pen=pg.mkPen('r', width=1))
         self.graphicsView_5.plot(self.Bfield.yGradientWaveform[0,:]*1e3,self.Bfield.yGradientWaveform[1,:],pen=pg.mkPen('b', width=1))
         
-        
-        
-        for p in self.Probe:
-            self.graphicsView_7.plot(p.xPos[1,:],p.yPos[1,:], symbol='+')
+    
     
     def setLineEdit(self):
         self.lineEdit.setText(str(self.FIDs[self.FIDpointer].f0)) #LO freq
