@@ -36,25 +36,29 @@ class MRSignal():
         self.Q = 0
         self.LO_I = 0
         self.LO_Q = 0
-        self.addNoise = False
-        self.noiseLvl = 10
+        self.addNoise = True
+        self.noiseLvl = 0.1
         self.T2 = 50e-6
         self.rollN = 0
         self.t0 = 0
         self.t1 = 0
         self.gyroMagneticRatio = 127.74e6/3 #Hz/T
+        self.doLowPass = True
 #         self.generateRFSignal()
         
     def generateRFSignal(self,Bfield,Probe):
         
         self.t = np.arange(0,(self.t1-self.t0),self.dt) #Always starts from zero for each new excitation!
-        B_temp=interp1d(Bfield.xGradientWaveform[0,:],Bfield.xGradientWaveform[1,:])
+#         self.t = self.t[0:int((self.t1-self.t0)/self.dt)] #Fixing some kind of rounding error
+        Gx_temp=interp1d(Bfield.xGradientWaveform[0,:],Bfield.xGradientWaveform[1,:])
+        Gy_temp=interp1d(Bfield.yGradientWaveform[0,:],Bfield.yGradientWaveform[1,:])
         xPos_temp=interp1d(Probe.xPos[0,:],Probe.xPos[1,:])
         yPos_temp=interp1d(Probe.yPos[0,:],Probe.yPos[1,:])
-        B_interp = B_temp(self.t+self.t0)
+        Gx_interp = Gx_temp(self.t+self.t0)
+        Gy_interp = Gy_temp(self.t+self.t0)
         xPos_interp = xPos_temp(self.t+self.t0)
         yPos_interp = yPos_temp(self.t+self.t0)
-        f = self.gyroMagneticRatio * (Bfield.B0 + (B_interp*Bfield.Gx_max*xPos_interp + B_interp*Bfield.Gy_max*yPos_interp))
+        f = self.gyroMagneticRatio * (Bfield.B0 + (Gx_interp*Bfield.Gx_max*xPos_interp + Gy_interp*Bfield.Gy_max*yPos_interp))
 #         f = (1/(2*np.pi)) * self.gyroMagneticRatio * Bfield.B0
         self.RFsignal = np.zeros(len(self.t))
         self.RFsignal = np.sin(2*np.pi*np.multiply(f,self.t)) #Oscillation
@@ -65,6 +69,7 @@ class MRSignal():
         self.LO_Q = np.sin(2*np.pi*self.f0*self.t + np.pi/2)
         self.I = np.multiply(self.RFsignal,self.LO_I)
         self.Q = np.multiply(self.RFsignal,self.LO_Q)
+        self.calculateFFTs()
         
     def calculatePhase(self):
 #         self.phase = np.unwrap(2*np.arctan(self.Q/self.I))/2
@@ -76,7 +81,9 @@ class MRSignal():
         A = np.vstack([self.t**2, self.t, np.ones(len(self.t))]).T
         self.c2, self.c1, self.c0 = np.linalg.lstsq(A, self.phase, rcond=None)[0]
         
-        
+    def calculateFFTs(self):
+        self.fft_freq = np.linspace(0,0.5/(self.dt),np.int(len(self.I)/2))
+        self.fft = np.fft.fft(self.I)
     
     def unWrapPhaseSimple(self,p):
         discont = np.pi/2       #Set discontinuity
@@ -92,15 +99,18 @@ class MRSignal():
 
 class Probe():
     def __init__(self):
-        self.xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)]) #[t,data] array!
-        self.yPos = np.asarray([np.linspace(0,25e-3,100),np.zeros(100)]) #[t,data] array!
+        self.xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*0.5]) #[t,data] array!
+        self.yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*0.5]) #[t,data] array!
     
 class Field():
     def __init__(self):
         self.B0 = 3 #Tesla
         self.xGradientWaveform = np.load(r"C:\Users\Oskar\Dropbox\Local files_oskars dator\Dropbox dokument\Python Scripts\General MRI\data\XGradientWaveform.npy")
-        self.Gx_max = 0.05 #Tesla/m
-        self.Gy_max = 0.05 #Tesla/m
+        self.yGradientWaveform = np.load(r"C:\Users\Oskar\Dropbox\Local files_oskars dator\Dropbox dokument\Python Scripts\General MRI\data\XGradientWaveform.npy")
+        self.xGradientWaveform[1,:]=np.roll(self.xGradientWaveform[1,:],-20)
+        self.yGradientWaveform[1,:]=np.roll(self.yGradientWaveform[1,:],20)
+        self.Gx_max = 0.1 #Tesla/m
+        self.Gy_max = 0.1 #Tesla/m
 
         
     def setGrid(self,x0,x1,y0,y1):
@@ -123,27 +133,26 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
     def __init__(self):
         
         self.Bfield = Field()
-        self.Probe = Probe()
+        self.Probe = []
         self.FIDpointer = 0
         self.FIDs = []
         self.FIDs.append(MRSignal())
-#         self.signal = MRSignal()
-#         self.signal2 = MRSignal()
+        self.setupProbes() #dummy
+
         super(self.__class__, self).__init__()
         self.setupUi(self)  # This is defined in design.py file automatically
         
-        self.setWindowTitle("MR signals")
         
+        self.setWindowTitle("MR signals")
+        self.checkBox_2.setChecked(True)
         self.pushButton.clicked.connect(self.updateParameters)
         self.pushButton_2.clicked.connect(self.togglePages)
         self.pushButton_3.clicked.connect(self.togglePages)
         self.pushButton_4.clicked.connect(self.addFID)
-#         self.checkBox.stateChanged.connect(self.enableGradientRamp)
+
         self.region = pg.LinearRegionItem(values=(0,0.01))
         self.graphicsView_5.addItem(self.region, ignoreBounds=True)
         
-#         self.region.sigRegionChanged.connect(self.setRegionTextBox)
-#         self.region2.sigRegionChanged.connect(self.setRegionTextBox)
         self.lineEdit_33.textChanged.connect(self.setRegionGraphics)
         self.lineEdit_34.textChanged.connect(self.setRegionGraphics)
 
@@ -156,7 +165,76 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
         self.initLineEdit()
         self.setRegionGraphics()
+        
+        self.setupFIDs() #dummy
+        
+        
+    def calculatePos(self):
+        a=self.FIDs[0].diffPhase
+        b=self.FIDs[1].diffPhase
+        c=self.FIDs[2].diffPhase
+        d=self.FIDs[3].diffPhase
+        length = [len(a),len(b),len(c),len(d)]
+        ind=np.min(length) #fixing some kind of rounding error
+        diffSnippets = np.matrix([a[0:ind],b[0:ind],c[0:ind]]).transpose()
+        r1 = [0.1,0.1,1]  #append 1
+        r2 = [-0.1,0.1,1] #append 1
+        r3 = [-0.1,-0.1,1]#append 1
+        refPosMatrix = np.linalg.inv(np.matrix([r1,r2,r3]).transpose())
+        FGg=np.multiply(1/self.FIDs[0].gyroMagneticRatio,np.matmul(diffSnippets,refPosMatrix))
+        FG = FGg[:,0:2]
+        Fg = FGg[:,2]
+        FGplus = np.linalg.pinv(FG)
+        solveInd = 3
+        r = np.matmul(FGplus,(1/self.FIDs[0].gyroMagneticRatio) * np.matrix(self.FIDs[solveInd].diffPhase[0:ind]).transpose() - Fg)
+        
+        print(r)
     
+    def setupFIDs(self):
+        #Dummy function for setting up FIDs
+        self.FIDs[0].t0 = 0.0017
+        self.FIDs[0].t1 = 0.0019
+        self.FIDpointer = len(self.FIDs)-1
+        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
+        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
+        self.updateParameters()
+        self.FIDs.append(MRSignal())
+        self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
+        self.FIDpointer = len(self.FIDs)-1
+        self.FIDs[self.FIDpointer].t0 = 0.0048
+        self.FIDs[self.FIDpointer].t1 = 0.005
+        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
+        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
+        self.updateParameters()
+        self.FIDs.append(MRSignal())
+        self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
+        self.FIDpointer = len(self.FIDs)-1
+        self.FIDs[self.FIDpointer].t0 = 0.0055
+        self.FIDs[self.FIDpointer].t1 = 0.0057
+        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
+        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
+        self.updateParameters()
+        
+        self.FIDs.append(MRSignal())
+        self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
+        self.FIDpointer = len(self.FIDs)-1
+        self.FIDs[self.FIDpointer].t0 = 0.0055
+        self.FIDs[self.FIDpointer].t1 = 0.0057
+        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
+        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
+        self.updateParameters()
+        
+    def setupProbes(self):
+        #Dummy function for setting up 3 static probe positions
+        for i in range(0,4):
+            self.Probe.append(Probe())
+            
+        self.Probe[1].xPos[1,:] = self.Probe[0].xPos[1,:]*(-1)
+        self.Probe[1].yPos[1,:] = self.Probe[0].yPos[1,:]
+        self.Probe[2].xPos[1,:] = self.Probe[0].xPos[1,:]*(-1)
+        self.Probe[2].yPos[1,:] = self.Probe[0].yPos[1,:]*(-1)
+        self.Probe[3].xPos[1,:] = self.Probe[0].xPos[1,:]*0
+        self.Probe[3].yPos[1,:] = self.Probe[0].yPos[1,:]*0
     
     def setCurrentFID(self):
         self.FIDpointer=self.listWidget.currentRow()
@@ -191,25 +269,6 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
         
         
-#     def enableGradientRamp(self):
-#         if self.checkBox.isChecked():
-#             self.lineEdit_10.setEnabled(True)
-#             self.lineEdit_11.setEnabled(True)
-#             self.signal.larmor_end = 12e6
-#             self.signal2.larmor_end = 12e6
-#             self.lineEdit_10.setText('127.8e6')
-#             self.lineEdit_11.setText('128.26e6')
-#         else:
-#             self.lineEdit_10.setEnabled(False)
-#             self.lineEdit_11.setEnabled(False)   
-            
-#     def setLarmorEndFreq(self):
-#         if self.checkBox.isChecked():
-#             self.signal.larmor_end = np.double(self.lineEdit_10.text())
-#             self.signal2.larmor_end = np.double(self.lineEdit_11.text())
-#         else:
-#             self.signal.larmor_end = self.signal.larmor
-#             self.signal2.larmor_end = self.signal2.larmor
         
     def zeroPad(self,array):
         zeros = np.zeros(self.FIDs[self.FIDpointer].Nbox)
@@ -225,7 +284,7 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
             conv = np.ones(self.FIDs[self.FIDpointer].Nbox)/self.FIDs[self.FIDpointer].Nbox
             self.FIDs[self.FIDpointer].I = np.convolve(conv,self.FIDs[self.FIDpointer].I,mode='valid')[np.int(self.FIDs[self.FIDpointer].Nbox/2):np.int(len(self.FIDs[self.FIDpointer].t)+self.FIDs[self.FIDpointer].Nbox/2)]
             self.FIDs[self.FIDpointer].Q = np.convolve(conv,self.FIDs[self.FIDpointer].Q,mode='valid')[np.int(self.FIDs[self.FIDpointer].Nbox/2):np.int(len(self.FIDs[self.FIDpointer].t)+self.FIDs[self.FIDpointer].Nbox/2)]
-            
+        
 
     def updateParameters(self):
         self.FIDs[self.FIDpointer].Nbox = np.int(self.lineEdit_15.text())
@@ -237,17 +296,12 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.FIDs[self.FIDpointer].dt = np.double(self.lineEdit_4.text())
         self.FIDs[self.FIDpointer].t0 = np.double(self.lineEdit_33.text())/1e3
         self.FIDs[self.FIDpointer].t1 = np.double(self.lineEdit_34.text())/1e3
-        self.FIDs[self.FIDpointer].generateRFSignal(self.Bfield,self.Probe)
+        self.FIDs[self.FIDpointer].generateRFSignal(self.Bfield,self.Probe[self.FIDpointer])
         self.LPfilter()
         self.FIDs[self.FIDpointer].calculatePhase()
+        if len(self.FIDs)>3:
+            self.calculatePos()
         self.plot()
-#         print('RF max: ' + str(np.max(self.signal.RFsignal)))
-#         print ("f0: " + str(self.signal.f0))
-#         print ("IF: " + str(self.signal.IF))
-#         print ("Larmor: " + str(self.signal.larmor))
-#         print ("dt: " + str(self.signal.dt))
-#         print ("BW: " + str(self.signal.BW))
-#         print ("Nsignals: " + str(self.signal.Nsignals))
         
     
     def plot(self):
@@ -259,7 +313,6 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.graphicsView_4.clear()
         
         self.graphicsView.plot(self.FIDs[self.FIDpointer].t, self.FIDs[self.FIDpointer].RFsignal,pen=pg.mkPen('r', width=1))
-    #         self.graphicsView.plot(self.signal2.t, self.signal2.RFsignal,pen=pg.mkPen('g', width=1))
         if self.checkBox_6.isChecked():
             self.graphicsView_2.plot(self.FIDs[self.FIDpointer].t, self.FIDs[self.FIDpointer].I,pen=pg.mkPen('r', width=1))
         if self.checkBox_5.isChecked():
@@ -270,10 +323,16 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         for x in self.FIDs:
             self.graphicsView_4.plot(x.t,x.phase,pen=pg.mkPen('r', width=1))
             self.graphicsView_4.plot(x.t,x.c2 * x.t**2 + x.c1*x.t + x.c0,pen=pg.mkPen('g', width=1))
-                    
-        self.graphicsView_5.plot(self.Bfield.xGradientWaveform[0,:]*1e3,self.Bfield.xGradientWaveform[1,:])
-    #         self.graphicsView_5.LinearRegionItem(values=(0, 0.1), orientation='vertical', brush=None, pen=None, hoverBrush=None, hoverPen=None, movable=True, bounds=(0,0.1), span=(0, 1), swapMode='sort')
-
+            self.graphicsView_6.plot(x.fft_freq,np.flip(20*np.log10(np.abs(x.fft[0:len(x.fft_freq)]))),pen=pg.mkPen('r', width=1))
+            
+            
+        self.graphicsView_5.plot(self.Bfield.xGradientWaveform[0,:]*1e3,self.Bfield.xGradientWaveform[1,:],pen=pg.mkPen('r', width=1))
+        self.graphicsView_5.plot(self.Bfield.yGradientWaveform[0,:]*1e3,self.Bfield.yGradientWaveform[1,:],pen=pg.mkPen('b', width=1))
+        
+        
+        
+        for p in self.Probe:
+            self.graphicsView_7.plot(p.xPos[1,:],p.yPos[1,:], symbol='+')
     
     def setLineEdit(self):
         self.lineEdit.setText(str(self.FIDs[self.FIDpointer].f0)) #LO freq
@@ -289,11 +348,11 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
     def initLineEdit(self):
         self.lineEdit.setText('126e6') #LO freq
-        self.lineEdit_4.setText('0.1e-9')
+        self.lineEdit_4.setText('0.5e-9')
 #         self.lineEdit_11.setText('10e6')
         self.lineEdit_33.setText('0.0')
         self.lineEdit_34.setText('0.1')
-        self.lineEdit_32.setText('50e-6')
+        self.lineEdit_32.setText('500e-6')
         self.lineEdit_31.setText(str(self.FIDs[self.FIDpointer].noiseLvl))
         self.updateParameters()
         
