@@ -155,6 +155,9 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
         self.lineEdit_33.textChanged.connect(self.setRegionGraphics)
         self.lineEdit_34.textChanged.connect(self.setRegionGraphics)
+        
+        self.lineEdit_35.textChanged.connect(self.setxPosition)
+        self.lineEdit_36.textChanged.connect(self.setyPosition)
 
         
         self.checkBox_5.stateChanged.connect(self.plot)
@@ -162,12 +165,25 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
         
         self.listWidget.currentRowChanged.connect(self.setCurrentFID)
+        self.setTabOrder(self.lineEdit_33, self.lineEdit_34)
+        
         
         self.initLineEdit()
         self.setRegionGraphics()
         
         self.setupFIDs() #dummy
+    
+    def setxPosition(self):
+        x = np.double(self.lineEdit_35.text())
+        y = self.FIDs[self.FIDpointer].Probe.yPos[1,0]
+        self.FIDs[self.FIDpointer].Probe.xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*x])
+        self.FIDs[self.FIDpointer].Probe.yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y])
         
+    def setyPosition(self):
+        y = np.double(self.lineEdit_36.text())
+        x = self.FIDs[self.FIDpointer].Probe.xPos[1,0]
+        self.FIDs[self.FIDpointer].Probe.xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*x])
+        self.FIDs[self.FIDpointer].Probe.yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y])
         
     def calculatePos(self):
         a=self.FIDs[0].diffPhase
@@ -332,8 +348,8 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.graphicsView_3.plot(self.FIDs[self.FIDpointer].I,self.FIDs[self.FIDpointer].Q,pen=pg.mkPen('r', width=1))
         
         for x in self.FIDs:
-            self.graphicsView_4.plot(x.t,x.phase,pen=pg.mkPen('r', width=1))
-            self.graphicsView_4.plot(x.t,x.c2 * x.t**2 + x.c1*x.t + x.c0,pen=pg.mkPen('g', width=1))
+            self.graphicsView_4.plot(x.t,x.phase,pen=pg.mkPen(x.RGB, width=1))
+            self.graphicsView_4.plot(x.t,x.c2 * x.t**2 + x.c1*x.t + x.c0,pen=pg.mkPen(x.RGB, width=1))
             self.graphicsView_6.plot(x.fft_freq,20*np.log10(np.abs(x.fft[0:len(x.fft_freq)])),pen=pg.mkPen(x.RGB, width=1))
             self.graphicsView_7.plot(x.Probe.xPos[1,:],x.Probe.yPos[1,:], symbol='o',symbolBrush=x.RGB,pen=pg.mkPen(x.RGB, width=1))
 #             self.graphicsView_7.plot(x.Probe.xPos[1,:],x.Probe.yPos[1,:])
@@ -352,6 +368,8 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.checkBox_9.setChecked(self.FIDs[self.FIDpointer].addNoise)
         self.checkBox_2.setChecked(self.FIDs[self.FIDpointer].doLowPass)
         self.lineEdit_31.setText(str(self.FIDs[self.FIDpointer].noiseLvl))
+        self.lineEdit_35.setText(str(self.FIDs[self.FIDpointer].Probe.xPos[1,0]))
+        self.lineEdit_36.setText(str(self.FIDs[self.FIDpointer].Probe.yPos[1,0]))
         self.plot()
         
         
