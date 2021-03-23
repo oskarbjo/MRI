@@ -5,7 +5,7 @@ import test1
 import sys
 import matplotlib
 from scipy.interpolate import interp1d
-
+from matplotlib import pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -22,39 +22,43 @@ import scipy.signal
 class MRSignal():
 
     def __init__(self):
-        self.f0 = 0
+        self.f0 = 126e6 #LO freq
         self.IF = 0
         self.larmor = 0
         self.larmor_end = 0
-        self.dt = 0
+        self.dt = 0.5e-9
         self.BW = 0
         self.Nsignals = 0
         self.T = 0
-        self.t = np.arange(0)
-        self.RFsignal = np.zeros(0)
-        self.I = 0
-        self.Q = 0
-        self.LO_I = 0
-        self.LO_Q = 0
-        self.addNoise = True
+        self.t = [0]
+        self.RFsignal = [0]
+        self.I = [0]
+        self.Q = [0]
+        self.LO_I = [0]
+        self.LO_Q = [0]
+        self.phase = [0]
+        self.diffPhase=[0]
+        self.fft_freq=[0]
+        self.fft=[0]
+        self.c2, self.c1, self.c0 = [0,0,0]
+        self.addNoise = False
         self.noiseLvl = 0.1
         self.T2 = 50e-6
         self.rollN = 0
         self.t0 = 0
-        self.t1 = 0
+        self.t1 = 0.0001
         self.gyroMagneticRatio = 127.74e6/3 #Hz/T
         self.doLowPass = True
-        self.Probe = Probe()
         self.RGB = 1000
 #         self.generateRFSignal()
         
-    def generateRFSignal(self,Bfield,Probe):
+    def generateRFSignal(self,Bfield,signalprobe):
         
         self.t = np.arange(0,(self.t1-self.t0),self.dt) #Always starts from zero for each new excitation!
         Gx_temp=interp1d(Bfield.xGradientWaveform[0,:],Bfield.xGradientWaveform[1,:])
         Gy_temp=interp1d(Bfield.yGradientWaveform[0,:],Bfield.yGradientWaveform[1,:])
-        xPos_temp=interp1d(Probe.xPos[0,:],Probe.xPos[1,:])
-        yPos_temp=interp1d(Probe.yPos[0,:],Probe.yPos[1,:])
+        xPos_temp=interp1d(signalprobe.xPos[0,:],signalprobe.xPos[1,:])
+        yPos_temp=interp1d(signalprobe.yPos[0,:],signalprobe.yPos[1,:])
         Gx_interp = Gx_temp(self.t+self.t0)
         Gy_interp = Gy_temp(self.t+self.t0)
         xPos_interp = xPos_temp(self.t+self.t0)
@@ -71,6 +75,7 @@ class MRSignal():
         self.I = np.multiply(self.RFsignal,self.LO_I)
         self.Q = np.multiply(self.RFsignal,self.LO_Q)
         self.calculateFFTs()
+        self.calculatePhase()
         
     def calculatePhase(self):
 #         self.phase = np.unwrap(2*np.arctan(self.Q/self.I))/2
@@ -102,12 +107,19 @@ class Probe():
     def __init__(self):
         self.xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*0.5]) #[t,data] array!
         self.yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*0.5]) #[t,data] array!
-    
+        self.FID = MRSignal()
+        
+    def setPositions(self,x,y):
+        self.xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*x]) #[t,data] array!
+        self.yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y]) #[t,data] array!
+        
 class Field():
     def __init__(self):
         self.B0 = 3 #Tesla
         self.xGradientWaveform = np.load(r"C:\Users\Oskar\Dropbox\Local files_oskars dator\Dropbox dokument\Python Scripts\General MRI\data\XGradientWaveform.npy")
         self.yGradientWaveform = np.load(r"C:\Users\Oskar\Dropbox\Local files_oskars dator\Dropbox dokument\Python Scripts\General MRI\data\XGradientWaveform.npy")
+        self.xGradientWaveform[0,:]=self.xGradientWaveform[0,:]*1000
+        self.yGradientWaveform[0,:]=self.yGradientWaveform[0,:]*1000
         self.xGradientWaveform[1,:]=np.roll(self.xGradientWaveform[1,:],-20)
         self.yGradientWaveform[1,:]=np.roll(self.yGradientWaveform[1,:],20)
         self.Gx_max = 0.1 #Tesla/m
@@ -126,6 +138,12 @@ class Field():
         
 #     def setBFieldTimeEvolution(self,xPos,yPos):
         
+class Snippet():
+    
+    def __init__(self,t0,t1):
+        self.t0 = t0
+        self.t1 = t1
+        self.probes = []
         
         
 
@@ -133,23 +151,25 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
     
     def __init__(self):
         
-        self.Bfield = Field()
-        self.FIDpointer = 0
-        self.FIDs = []
-        #Some setup:
-        self.FIDs.append(MRSignal())
 
         super(self.__class__, self).__init__()
         self.setupUi(self)  # This is defined in design.py file automatically
-        
+        self.initLineEdit()
+        self.Bfield = Field()
+        self.snippetPointer = 0
+        self.probePointer = 0
+        self.snippets = []
+        self.initSnippet()
+
         
         self.setWindowTitle("MR signals")
         self.checkBox_2.setChecked(True)
         self.pushButton.clicked.connect(self.updateParameters)
         self.pushButton_2.clicked.connect(self.togglePages)
         self.pushButton_3.clicked.connect(self.togglePages)
-        self.pushButton_4.clicked.connect(self.addFID)
-
+        self.pushButton_4.clicked.connect(self.addSnippet)
+        self.pushButton_6.clicked.connect(self.addProbe)
+        self.pushButton_8.clicked.connect(self.calculatePos)
         self.region = pg.LinearRegionItem(values=(0,0.01))
         self.graphicsView_5.addItem(self.region, ignoreBounds=True)
         
@@ -164,116 +184,156 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.checkBox_6.stateChanged.connect(self.plot)
         
         
-        self.listWidget.currentRowChanged.connect(self.setCurrentFID)
+        self.listWidget.currentRowChanged.connect(self.setCurrentSnippet)
+        self.listWidget_2.currentRowChanged.connect(self.setCurrentProbe)
         self.setTabOrder(self.lineEdit_33, self.lineEdit_34)
         
         
         self.initLineEdit()
         self.setRegionGraphics()
-        
-        self.setupFIDs() #dummy
+        self.setupSnippets()
+        self.setupProbes()
+#         self.setupFIDs() #dummy
+
     
     def setxPosition(self):
         x = np.double(self.lineEdit_35.text())
-        y = self.FIDs[self.FIDpointer].Probe.yPos[1,0]
-        self.FIDs[self.FIDpointer].Probe.xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*x])
-        self.FIDs[self.FIDpointer].Probe.yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y])
+        y = self.snippets[self.snippetPointer].probes[self.probePointer].yPos[1,0]
+        for i in self.snippets:
+            i.probes[self.probePointer].xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*x])
+            i.probes[self.probePointer].yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y])
         
     def setyPosition(self):
         y = np.double(self.lineEdit_36.text())
-        x = self.FIDs[self.FIDpointer].Probe.xPos[1,0]
-        self.FIDs[self.FIDpointer].Probe.xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*x])
-        self.FIDs[self.FIDpointer].Probe.yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y])
+        x = self.snippets[self.snippetPointer].probes[self.probePointer].xPos[1,0]
+        for i in self.snippets:
+            i.probes[self.probePointer].xPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*x])
+            i.probes[self.probePointer].yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y])
         
     def calculatePos(self):
-        a=self.FIDs[0].diffPhase
-        b=self.FIDs[1].diffPhase
-        c=self.FIDs[2].diffPhase
-        d=self.FIDs[3].diffPhase
-        length = [len(a),len(b),len(c),len(d)]
-        ind=np.min(length) #fixing some kind of rounding error
-        diffSnippets = np.matrix([a[0:ind],b[0:ind],c[0:ind]]).transpose()
-        r1 = [0.1,0.1,1]  #append 1
-        r2 = [-0.1,0.1,1] #append 1
-        r3 = [-0.1,-0.1,1]#append 1
+        length = len(self.snippets[0].probes[0].FID.diffPhase)+len(self.snippets[1].probes[0].FID.diffPhase)+len(self.snippets[2].probes[0].FID.diffPhase)                                                                                                     
+        mat=np.matrix((np.zeros(length),np.zeros(length),np.zeros(length)))
+
+        for i in np.arange(0,len(self.snippets[0].probes)-1):
+            a = self.snippets[0].probes[i].FID.diffPhase
+            b = self.snippets[1].probes[i].FID.diffPhase
+            c = self.snippets[2].probes[i].FID.diffPhase
+            conc = np.concatenate((a,b,c))
+            mat[i,:] = conc
+        diffSnippets = mat.transpose()
+ 
+        x1 = self.snippets[0].probes[0].xPos[1,0]
+        x2 = self.snippets[0].probes[1].xPos[1,0]
+        x3 = self.snippets[0].probes[2].xPos[1,0]
+        y1 = self.snippets[0].probes[0].yPos[1,0]
+        y2 = self.snippets[0].probes[1].yPos[1,0]
+        y3 = self.snippets[0].probes[2].yPos[1,0]
+        r1 = [x1,y1,1]  #append 1
+        r2 = [x2,y2,1]  #append 1
+        r3 = [x3,y3,1]  #append 1
         refPosMatrix = np.linalg.inv(np.matrix([r1,r2,r3]).transpose())
-        FGg=np.multiply(1/self.FIDs[0].gyroMagneticRatio,np.matmul(diffSnippets,refPosMatrix))
+        FGg=np.multiply(1/self.snippets[0].probes[0].FID.gyroMagneticRatio,np.matmul(diffSnippets,refPosMatrix))
         FG = FGg[:,0:2]
         Fg = FGg[:,2]
         FGplus = np.linalg.pinv(FG)
         solveInd = 3
-        r = np.matmul(FGplus,(1/self.FIDs[0].gyroMagneticRatio) * np.matrix(self.FIDs[solveInd].diffPhase[0:ind]).transpose() - Fg)
+        a = self.snippets[0].probes[solveInd].FID.diffPhase
+        b = self.snippets[1].probes[solveInd].FID.diffPhase
+        c = self.snippets[2].probes[solveInd].FID.diffPhase
+        conc2 = np.concatenate((a,b,c))
+        conc2 = np.matrix(conc2.transpose())
+        Dfi = conc2.transpose()
+        plt.figure()
+        plt.plot(Dfi)
+        plt.show()
+        r = np.matmul(FGplus,(1/self.snippets[0].probes[0].FID.gyroMagneticRatio) * np.matrix(Dfi - Fg))
         
         print(r)
     
-    def setupFIDs(self):
-        #Dummy function for setting up FIDs
-        self.FIDs[0].t0 = 0.0017
-        self.FIDs[0].t1 = 0.0019
-        self.FIDpointer = len(self.FIDs)-1
-        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
-        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
-        self.updateParameters()
-        self.FIDs.append(MRSignal())
-        self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
-        self.FIDpointer = len(self.FIDs)-1
-        self.FIDs[self.FIDpointer].Probe.xPos[1,:] = self.FIDs[self.FIDpointer].Probe.xPos[1,:]*(-1)
-        self.FIDs[self.FIDpointer].Probe.yPos[1,:] = self.FIDs[self.FIDpointer].Probe.yPos[1,:]
-        self.FIDs[self.FIDpointer].t0 = 0.0048
-        self.FIDs[self.FIDpointer].t1 = 0.005
-        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
-        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
-        self.updateParameters()
-        self.FIDs.append(MRSignal())
-        self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
-        self.FIDpointer = len(self.FIDs)-1
-        self.FIDs[self.FIDpointer].Probe.xPos[1,:] = self.FIDs[self.FIDpointer].Probe.xPos[1,:]*(-1)
-        self.FIDs[self.FIDpointer].Probe.yPos[1,:] = self.FIDs[self.FIDpointer].Probe.yPos[1,:]*(-1)
-        self.FIDs[self.FIDpointer].t0 = 0.0055
-        self.FIDs[self.FIDpointer].t1 = 0.0057
-        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
-        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
-        self.updateParameters()
+    def setupSnippets(self): #dummy function
+        self.addSnippet()
+        self.addSnippet()
+        self.snippets[0].t0=0.001
+        self.snippets[0].t1=0.002
+        self.snippets[1].t0=0.005
+        self.snippets[1].t1=0.006
+        self.snippets[2].t0=0.0091
+        self.snippets[2].t1=0.010
+
         
-        self.FIDs.append(MRSignal())
-        self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
-        self.FIDpointer = len(self.FIDs)-1
-        self.FIDs[self.FIDpointer].Probe.xPos[1,:] = self.FIDs[self.FIDpointer].Probe.xPos[1,:]*0
-        self.FIDs[self.FIDpointer].Probe.yPos[1,:] = self.FIDs[self.FIDpointer].Probe.yPos[1,:]*0
-        self.FIDs[self.FIDpointer].t0 = 0.0055
-        self.FIDs[self.FIDpointer].t1 = 0.0057
-        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
-        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
-        self.updateParameters()
+    def setupProbes(self):  #dummy function
+        self.addProbe()
+        self.addProbe()
+        self.addProbe()
+        datax=[0.5,-0.5,-0.5,0.5]
+        datay=[0.5,0.5,-0.5,-0.5]
+        for i in self.snippets:
+            ind=0
+            for j in i.probes:
+                j.setPositions(datax[ind],datay[ind])
+                ind=ind+1
+        print(self.snippets[0].probes[2].xPos[1,0])
         
-#     def setupProbes(self):
-#         #Dummy function for setting up 3 static probe positions
-#         for i in range(0,4):
-#             self.FIDs[self.FIDpointer].Probe.append(Probe())
-#             
-#         self.FIDs[self.FIDpointer].Probe[1].xPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].xPos[1,:]*(-1)
-#         self.FIDs[self.FIDpointer].Probe[1].yPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].yPos[1,:]
-#         self.FIDs[self.FIDpointer].Probe[2].xPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].xPos[1,:]*(-1)
-#         self.FIDs[self.FIDpointer].Probe[2].yPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].yPos[1,:]*(-1)
-#         self.FIDs[self.FIDpointer].Probe[3].xPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].xPos[1,:]*0
-#         self.FIDs[self.FIDpointer].Probe[3].yPos[1,:] = self.FIDs[self.FIDpointer].Probe[0].yPos[1,:]*0
-    
-    def setCurrentFID(self):
-        self.FIDpointer=self.listWidget.currentRow()
-        for i in np.arange(0,len(self.FIDs)):
-            self.FIDs[i].RGB = 1000
-        self.FIDs[self.FIDpointer].RGB = 5000
+    def addProbe(self):
+        a=self.snippetPointer
+        for i in np.arange(0,len(self.snippets)):
+            self.snippets[i].probes.append(Probe())
+            self.snippetPointer=i
+            self.probePointer=len(self.snippets[i].probes)-1
+            self.setLineEdit()
+            self.updateParameters()
+        self.snippetPointer=a
+        self.probePointer = len(self.snippets[0].probes)-1
+        self.listWidget_2.addItem('Probe ' + str(len(self.snippets[0].probes)))
+        self.plot()
+        
+    def setCurrentProbe(self):
+        self.probePointer = self.listWidget_2.currentRow()
         self.setLineEdit()
+        self.plot()
+        
+    def setCurrentSnippet(self):
+        self.snippetPointer=self.listWidget.currentRow()
+#         for i in np.arange(0,len(self.FIDs)):
+#             self.FIDs[i].RGB = 1000
+#         self.FIDs[self.snippetPointer].RGB = 5000
+        self.setLineEdit()
+        self.setRegionGraphics()
+        self.plot()
     
-    def addFID(self):
-        self.FIDs.append(MRSignal())
-        self.listWidget.addItem('Snippet ' + str(len(self.FIDs)))
-        self.FIDpointer = len(self.FIDs)-1
-        self.initLineEdit()
+    def initSnippet(self):
+        self.snippets.append(Snippet(0,0.0001))
+        self.listWidget.addItem('Snippet ' + str(len(self.snippets)))
+        self.snippetPointer = len(self.snippets)-1
+#         self.listWidget.setCurrentRow(self.snippetPointer)
+        self.snippets[self.snippetPointer].probes.append(Probe())
+        self.probePointer = len(self.snippets[self.snippetPointer].probes)-1
+        self.setLineEdit()
+        self.updateParameters()
+        self.plot()
+        
+    def addSnippet(self):
+        self.snippets.append(Snippet(0,0.0001))
+        self.listWidget.addItem('Snippet ' + str(len(self.snippets)))
+        self.snippetPointer = len(self.snippets)-1
+#         self.listWidget.setCurrentRow(self.snippetPointer)
+        a=self.probePointer
+        for i in self.snippets[0].probes:
+            self.snippets[self.snippetPointer].probes.append(Probe())
+            self.probePointer = len(self.snippets[self.snippetPointer].probes)-1
+            self.setLineEdit()
+            self.updateParameters()
+        self.probePointer=a
+#         self.snippets[self.snippetPointer].probes[self.probePointer].FID.generateRFSignal(self.Bfield, self.snippets[self.snippetPointer].probes[self.probePointer])
+        self.setRegionGraphics()
+        self.plot()
     
     def setRegionGraphics(self):
-        self.region.setRegion([np.double(self.lineEdit_33.text()),np.double(self.lineEdit_34.text())])
-
+        t0 = np.double(self.lineEdit_33.text())
+        t1 = np.double(self.lineEdit_34.text())
+        self.region.setRegion([t0,t1])
+        self.snippets[self.snippetPointer].t0 = t0/1000
+        self.snippets[self.snippetPointer].t1 = t1/1000
         
 #     def setRegionTextBox(self):
 #         self.lineEdit_33.setText(str(np.around(self.region.getRegion()[0],8)))
@@ -296,36 +356,37 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
         
     def zeroPad(self,array):
-        zeros = np.zeros(self.FIDs[self.FIDpointer].Nbox)
+        zeros = np.zeros(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox)
         array = np.concatenate((array,zeros))
         array = np.concatenate((zeros,array))
         return array
         
     def LPfilter(self):
-        if self.FIDs[self.FIDpointer].doLowPass:
-            self.FIDs[self.FIDpointer].Nbox = np.int(self.lineEdit_15.text())
-            self.FIDs[self.FIDpointer].I = self.zeroPad(self.FIDs[self.FIDpointer].I)
-            self.FIDs[self.FIDpointer].Q = self.zeroPad(self.FIDs[self.FIDpointer].Q)
-            conv = np.ones(self.FIDs[self.FIDpointer].Nbox)/self.FIDs[self.FIDpointer].Nbox
-            self.FIDs[self.FIDpointer].I = np.convolve(conv,self.FIDs[self.FIDpointer].I,mode='valid')[np.int(self.FIDs[self.FIDpointer].Nbox/2):np.int(len(self.FIDs[self.FIDpointer].t)+self.FIDs[self.FIDpointer].Nbox/2)]
-            self.FIDs[self.FIDpointer].Q = np.convolve(conv,self.FIDs[self.FIDpointer].Q,mode='valid')[np.int(self.FIDs[self.FIDpointer].Nbox/2):np.int(len(self.FIDs[self.FIDpointer].t)+self.FIDs[self.FIDpointer].Nbox/2)]
+        if self.snippets[self.snippetPointer].probes[self.probePointer].FID.doLowPass:
+            self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox = np.int(self.lineEdit_15.text())
+            self.snippets[self.snippetPointer].probes[self.probePointer].FID.I = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.I)
+            self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q)
+            conv = np.ones(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox)/self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox
+            self.snippets[self.snippetPointer].probes[self.probePointer].FID.I = np.convolve(conv,self.snippets[self.snippetPointer].probes[self.probePointer].FID.I,mode='valid')[np.int(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2):np.int(len(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t)+self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2)]
+            self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q = np.convolve(conv,self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q,mode='valid')[np.int(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2):np.int(len(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t)+self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2)]
         
 
     def updateParameters(self):
-        self.FIDs[self.FIDpointer].Nbox = np.int(self.lineEdit_15.text())
-        self.FIDs[self.FIDpointer].addNoise = self.checkBox_9.isChecked()
-        self.FIDs[self.FIDpointer].doLowPass = self.checkBox_2.isChecked()
-        self.FIDs[self.FIDpointer].noiseLvl = np.double(self.lineEdit_31.text())
-        self.FIDs[self.FIDpointer].T2 = np.double(self.lineEdit_32.text())
-        self.FIDs[self.FIDpointer].f0 = np.double(self.lineEdit.text())
-        self.FIDs[self.FIDpointer].dt = np.double(self.lineEdit_4.text())
-        self.FIDs[self.FIDpointer].t0 = np.double(self.lineEdit_33.text())/1e3
-        self.FIDs[self.FIDpointer].t1 = np.double(self.lineEdit_34.text())/1e3
-        self.FIDs[self.FIDpointer].generateRFSignal(self.Bfield,self.FIDs[self.FIDpointer].Probe)
+
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox = np.int(self.lineEdit_15.text())
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.addNoise = self.checkBox_9.isChecked()
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.doLowPass = self.checkBox_2.isChecked()
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.noiseLvl = np.double(self.lineEdit_31.text())
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.T2 = np.double(self.lineEdit_32.text())
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.f0 = np.double(self.lineEdit.text())
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.dt = np.double(self.lineEdit_4.text())
+        self.snippets[self.snippetPointer].t0 = np.double(self.lineEdit_33.text())/1000
+        self.snippets[self.snippetPointer].t1 = np.double(self.lineEdit_34.text())/1000
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.generateRFSignal(self.Bfield,self.snippets[self.snippetPointer].probes[self.probePointer])
         self.LPfilter()
-        self.FIDs[self.FIDpointer].calculatePhase()
-        if len(self.FIDs)>3:
-            self.calculatePos()
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.calculatePhase()
+        
+        
         self.plot()
         
     
@@ -339,39 +400,42 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.graphicsView_6.clear()
         self.graphicsView_7.clear()
         
-        self.graphicsView.plot(self.FIDs[self.FIDpointer].t, self.FIDs[self.FIDpointer].RFsignal,pen=pg.mkPen('r', width=1))
+        self.graphicsView.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t, self.snippets[self.snippetPointer].probes[self.probePointer].FID.RFsignal,pen=pg.mkPen('r', width=1))
         if self.checkBox_6.isChecked():
-            self.graphicsView_2.plot(self.FIDs[self.FIDpointer].t, self.FIDs[self.FIDpointer].I,pen=pg.mkPen('r', width=1))
+            self.graphicsView_2.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t, self.snippets[self.snippetPointer].probes[self.probePointer].FID.I,pen=pg.mkPen('r', width=1))
         if self.checkBox_5.isChecked():
-            self.graphicsView_2.plot(self.FIDs[self.FIDpointer].t, self.FIDs[self.FIDpointer].Q,pen=pg.mkPen('b', width=1))
+            self.graphicsView_2.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t, self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q,pen=pg.mkPen('b', width=1))
     
-        self.graphicsView_3.plot(self.FIDs[self.FIDpointer].I,self.FIDs[self.FIDpointer].Q,pen=pg.mkPen('r', width=1))
+        self.graphicsView_3.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.I,self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q,pen=pg.mkPen('r', width=1))
         
-        for x in self.FIDs:
-            self.graphicsView_4.plot(x.t,x.phase,pen=pg.mkPen(x.RGB, width=1))
-            self.graphicsView_4.plot(x.t,x.c2 * x.t**2 + x.c1*x.t + x.c0,pen=pg.mkPen(x.RGB, width=1))
-            self.graphicsView_6.plot(x.fft_freq,20*np.log10(np.abs(x.fft[0:len(x.fft_freq)])),pen=pg.mkPen(x.RGB, width=1))
-            self.graphicsView_7.plot(x.Probe.xPos[1,:],x.Probe.yPos[1,:], symbol='o',symbolBrush=x.RGB,pen=pg.mkPen(x.RGB, width=1))
+        
+        self.graphicsView_4.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t,self.snippets[self.snippetPointer].probes[self.probePointer].FID.phase,pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
+#         self.graphicsView_4.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t,self.snippets[self.snippetPointer].probes[self.probePointer].FID.c2 * self.snippets[self.snippetPointer].probes[self.probePointer].FID.t**2 + self.snippets[self.snippetPointer].probes[self.probePointer].FID.c1*self.snippets[self.snippetPointer].probes[self.probePointer].FID.t + self.snippets[self.snippetPointer].probes[self.probePointer].FID.c0,pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
+        self.graphicsView_6.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.fft_freq,20*np.log10(np.abs(self.snippets[self.snippetPointer].probes[self.probePointer].FID.fft[0:len(self.snippets[self.snippetPointer].probes[self.probePointer].FID.fft_freq)])),pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
+        self.graphicsView_7.plot(self.snippets[self.snippetPointer].probes[self.probePointer].xPos[1,:],self.snippets[self.snippetPointer].probes[self.probePointer].yPos[1,:], symbol='o',symbolBrush=self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB,pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
 #             self.graphicsView_7.plot(x.Probe.xPos[1,:],x.Probe.yPos[1,:])
             
-        self.graphicsView_5.plot(self.Bfield.xGradientWaveform[0,:]*1e3,self.Bfield.xGradientWaveform[1,:],pen=pg.mkPen('r', width=1))
-        self.graphicsView_5.plot(self.Bfield.yGradientWaveform[0,:]*1e3,self.Bfield.yGradientWaveform[1,:],pen=pg.mkPen('b', width=1))
+        self.graphicsView_5.plot(self.Bfield.xGradientWaveform[0,:],self.Bfield.xGradientWaveform[1,:],pen=pg.mkPen('r', width=1))
+        self.graphicsView_5.plot(self.Bfield.yGradientWaveform[0,:],self.Bfield.yGradientWaveform[1,:],pen=pg.mkPen('b', width=1))
         
     
     
     def setLineEdit(self):
-        self.lineEdit.setText(str(self.FIDs[self.FIDpointer].f0)) #LO freq
-        self.lineEdit_4.setText(str(self.FIDs[self.FIDpointer].dt))
-        self.lineEdit_33.setText(str(self.FIDs[self.FIDpointer].t0 * 1e3))
-        self.lineEdit_34.setText(str(self.FIDs[self.FIDpointer].t1 * 1e3))
-        self.lineEdit_32.setText(str(self.FIDs[self.FIDpointer].T2))
-        self.checkBox_9.setChecked(self.FIDs[self.FIDpointer].addNoise)
-        self.checkBox_2.setChecked(self.FIDs[self.FIDpointer].doLowPass)
-        self.lineEdit_31.setText(str(self.FIDs[self.FIDpointer].noiseLvl))
-        self.lineEdit_35.setText(str(self.FIDs[self.FIDpointer].Probe.xPos[1,0]))
-        self.lineEdit_36.setText(str(self.FIDs[self.FIDpointer].Probe.yPos[1,0]))
-        self.plot()
-        
+        self.lineEdit.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].FID.f0)) #LO freq
+        self.lineEdit_4.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].FID.dt))
+        self.lineEdit_33.blockSignals(True)
+        self.lineEdit_34.blockSignals(True)
+        self.lineEdit_33.setText(str(self.snippets[self.snippetPointer].t0*1000))
+        self.lineEdit_34.setText(str(self.snippets[self.snippetPointer].t1*1000))
+        self.lineEdit_33.blockSignals(False)
+        self.lineEdit_34.blockSignals(False)
+        self.lineEdit_32.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].FID.T2))
+        self.checkBox_9.setChecked(self.snippets[self.snippetPointer].probes[self.probePointer].FID.addNoise)
+        self.checkBox_2.setChecked(self.snippets[self.snippetPointer].probes[self.probePointer].FID.doLowPass)
+        self.lineEdit_31.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].FID.noiseLvl))
+        self.lineEdit_35.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].xPos[1,0]))
+        self.lineEdit_36.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].yPos[1,0]))
+     
         
     def initLineEdit(self):
         self.lineEdit.setText('126e6') #LO freq
@@ -379,9 +443,9 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
 #         self.lineEdit_11.setText('10e6')
         self.lineEdit_33.setText('0.0')
         self.lineEdit_34.setText('0.1')
-        self.lineEdit_32.setText('500e-6')
-        self.lineEdit_31.setText(str(self.FIDs[self.FIDpointer].noiseLvl))
-        self.updateParameters()
+        self.lineEdit_32.setText('50e-6')
+        self.lineEdit_31.setText('0.1')
+
         
 def main():
     app = QtWidgets.QApplication(sys.argv)  # A new instance of QApplication
