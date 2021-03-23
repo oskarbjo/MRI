@@ -41,28 +41,26 @@ class MRSignal():
         self.fft_freq=[0]
         self.fft=[0]
         self.c2, self.c1, self.c0 = [0,0,0]
-        self.addNoise = False
+        self.addNoise = True
         self.noiseLvl = 0.1
-        self.T2 = 50e-6
+        self.T2 = 500e-6
         self.rollN = 0
-        self.t0 = 0
-        self.t1 = 0.0001
         self.gyroMagneticRatio = 127.74e6/3 #Hz/T
         self.doLowPass = True
         self.RGB = 1000
 #         self.generateRFSignal()
         
-    def generateRFSignal(self,Bfield,signalprobe):
+    def generateRFSignal(self,Bfield,signalprobe,t0,t1):
         
-        self.t = np.arange(0,(self.t1-self.t0),self.dt) #Always starts from zero for each new excitation!
-        Gx_temp=interp1d(Bfield.xGradientWaveform[0,:],Bfield.xGradientWaveform[1,:])
-        Gy_temp=interp1d(Bfield.yGradientWaveform[0,:],Bfield.yGradientWaveform[1,:])
+        self.t = np.arange(0,(t1-t0),self.dt) #Always starts from zero for each new excitation!
+        Gx_temp=interp1d(Bfield.xGradientWaveform[0,:]*1e-3,Bfield.xGradientWaveform[1,:])
+        Gy_temp=interp1d(Bfield.yGradientWaveform[0,:]*1e-3,Bfield.yGradientWaveform[1,:])
         xPos_temp=interp1d(signalprobe.xPos[0,:],signalprobe.xPos[1,:])
         yPos_temp=interp1d(signalprobe.yPos[0,:],signalprobe.yPos[1,:])
-        Gx_interp = Gx_temp(self.t+self.t0)
-        Gy_interp = Gy_temp(self.t+self.t0)
-        xPos_interp = xPos_temp(self.t+self.t0)
-        yPos_interp = yPos_temp(self.t+self.t0)
+        Gx_interp = Gx_temp(self.t+t0)
+        Gy_interp = Gy_temp(self.t+t0)
+        xPos_interp = xPos_temp(self.t+t0)
+        yPos_interp = yPos_temp(self.t+t0)
         f = self.gyroMagneticRatio * (Bfield.B0 + (Gx_interp*Bfield.Gx_max*xPos_interp + Gy_interp*Bfield.Gy_max*yPos_interp))
 #         f = (1/(2*np.pi)) * self.gyroMagneticRatio * Bfield.B0
         self.RFsignal = np.zeros(len(self.t))
@@ -86,6 +84,7 @@ class MRSignal():
         self.diffPhase=np.diff(self.phase)/self.dt
         A = np.vstack([self.t**2, self.t, np.ones(len(self.t))]).T
         self.c2, self.c1, self.c0 = np.linalg.lstsq(A, self.phase, rcond=None)[0]
+        self.diffPhase_fit = np.diff(np.power(self.t,2)*self.c2 + self.t*self.c1 + self.c0)/self.dt
         
     def calculateFFTs(self):
         self.fft_freq = np.linspace(0,0.5/(self.dt),np.int(len(self.I)/2))
@@ -193,9 +192,18 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.setRegionGraphics()
         self.setupSnippets()
         self.setupProbes()
-#         self.setupFIDs() #dummy
+        self.updateAll()
 
-    
+
+    def updateAll(self):
+        for i in np.arange(0,len(self.snippets)):
+            ind=0
+            for j in np.arange(0,len(self.snippets[-1].probes)):
+                self.probePointer = j
+                self.snippetPointer = i
+                self.setLineEdit()
+                self.updateParameters()
+        
     def setxPosition(self):
         x = np.double(self.lineEdit_35.text())
         y = self.snippets[self.snippetPointer].probes[self.probePointer].yPos[1,0]
@@ -211,13 +219,13 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
             i.probes[self.probePointer].yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y])
         
     def calculatePos(self):
-        length = len(self.snippets[0].probes[0].FID.diffPhase)+len(self.snippets[1].probes[0].FID.diffPhase)+len(self.snippets[2].probes[0].FID.diffPhase)                                                                                                     
+        length = len(self.snippets[0].probes[0].FID.diffPhase_fit)+len(self.snippets[1].probes[0].FID.diffPhase_fit)+len(self.snippets[2].probes[0].FID.diffPhase_fit)                                                                                                     
         mat=np.matrix((np.zeros(length),np.zeros(length),np.zeros(length)))
 
         for i in np.arange(0,len(self.snippets[0].probes)-1):
-            a = self.snippets[0].probes[i].FID.diffPhase
-            b = self.snippets[1].probes[i].FID.diffPhase
-            c = self.snippets[2].probes[i].FID.diffPhase
+            a = self.snippets[0].probes[i].FID.diffPhase_fit
+            b = self.snippets[1].probes[i].FID.diffPhase_fit
+            c = self.snippets[2].probes[i].FID.diffPhase_fit
             conc = np.concatenate((a,b,c))
             mat[i,:] = conc
         diffSnippets = mat.transpose()
@@ -237,9 +245,9 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         Fg = FGg[:,2]
         FGplus = np.linalg.pinv(FG)
         solveInd = 3
-        a = self.snippets[0].probes[solveInd].FID.diffPhase
-        b = self.snippets[1].probes[solveInd].FID.diffPhase
-        c = self.snippets[2].probes[solveInd].FID.diffPhase
+        a = self.snippets[0].probes[solveInd].FID.diffPhase_fit
+        b = self.snippets[1].probes[solveInd].FID.diffPhase_fit
+        c = self.snippets[2].probes[solveInd].FID.diffPhase_fit
         conc2 = np.concatenate((a,b,c))
         conc2 = np.matrix(conc2.transpose())
         Dfi = conc2.transpose()
@@ -257,22 +265,22 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.snippets[0].t1=0.002
         self.snippets[1].t0=0.005
         self.snippets[1].t1=0.006
-        self.snippets[2].t0=0.0091
-        self.snippets[2].t1=0.010
+        self.snippets[2].t0=0.009
+        self.snippets[2].t1=0.01
+
 
         
     def setupProbes(self):  #dummy function
         self.addProbe()
         self.addProbe()
         self.addProbe()
-        datax=[0.5,-0.5,-0.5,0.5]
-        datay=[0.5,0.5,-0.5,-0.5]
+        datax=[0.1,-0.1,-0.1,0.1]
+        datay=[0.1,0.1,-0.1,-0.1]
         for i in self.snippets:
             ind=0
             for j in i.probes:
                 j.setPositions(datax[ind],datay[ind])
                 ind=ind+1
-        print(self.snippets[0].probes[2].xPos[1,0])
         
     def addProbe(self):
         a=self.snippetPointer
@@ -294,9 +302,6 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
     def setCurrentSnippet(self):
         self.snippetPointer=self.listWidget.currentRow()
-#         for i in np.arange(0,len(self.FIDs)):
-#             self.FIDs[i].RGB = 1000
-#         self.FIDs[self.snippetPointer].RGB = 5000
         self.setLineEdit()
         self.setRegionGraphics()
         self.plot()
@@ -305,7 +310,6 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.snippets.append(Snippet(0,0.0001))
         self.listWidget.addItem('Snippet ' + str(len(self.snippets)))
         self.snippetPointer = len(self.snippets)-1
-#         self.listWidget.setCurrentRow(self.snippetPointer)
         self.snippets[self.snippetPointer].probes.append(Probe())
         self.probePointer = len(self.snippets[self.snippetPointer].probes)-1
         self.setLineEdit()
@@ -382,7 +386,7 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.snippets[self.snippetPointer].probes[self.probePointer].FID.dt = np.double(self.lineEdit_4.text())
         self.snippets[self.snippetPointer].t0 = np.double(self.lineEdit_33.text())/1000
         self.snippets[self.snippetPointer].t1 = np.double(self.lineEdit_34.text())/1000
-        self.snippets[self.snippetPointer].probes[self.probePointer].FID.generateRFSignal(self.Bfield,self.snippets[self.snippetPointer].probes[self.probePointer])
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.generateRFSignal(self.Bfield,self.snippets[self.snippetPointer].probes[self.probePointer],self.snippets[self.snippetPointer].t0,self.snippets[self.snippetPointer].t1)
         self.LPfilter()
         self.snippets[self.snippetPointer].probes[self.probePointer].FID.calculatePhase()
         
@@ -435,15 +439,15 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.lineEdit_31.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].FID.noiseLvl))
         self.lineEdit_35.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].xPos[1,0]))
         self.lineEdit_36.setText(str(self.snippets[self.snippetPointer].probes[self.probePointer].yPos[1,0]))
-     
+    
         
     def initLineEdit(self):
         self.lineEdit.setText('126e6') #LO freq
         self.lineEdit_4.setText('0.5e-9')
 #         self.lineEdit_11.setText('10e6')
-        self.lineEdit_33.setText('0.0')
-        self.lineEdit_34.setText('0.1')
-        self.lineEdit_32.setText('50e-6')
+#         self.lineEdit_33.setText('0.0')
+#         self.lineEdit_34.setText('0.1')
+        self.lineEdit_32.setText('500e-6')
         self.lineEdit_31.setText('0.1')
 
         
