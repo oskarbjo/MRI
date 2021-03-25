@@ -49,12 +49,14 @@ class MRSignal():
         self.gyroMagneticRatio = 127.74e6/3 #Hz/T
         self.doLowPass = True
         self.RGB = 1000
+        self.Nbox = 79
 #         self.generateRFSignal()
         
     def generateRFSignal(self,Bfield,signalprobe,t0,t1):
         
         self.t = np.arange(0,(t1-t0),self.dt) #Always starts from zero for each new excitation!
         self.t_dec = np.arange(0,(t1-t0),self.dt_dec)
+        self.t_dec = np.delete(self.t_dec, len(self.t_dec) - 1) #Removes last element to ensure that interpolation is not out of range
         Gx_temp=interp1d(Bfield.xGradientWaveform[0,:]*1e-3,Bfield.xGradientWaveform[1,:])
         Gy_temp=interp1d(Bfield.yGradientWaveform[0,:]*1e-3,Bfield.yGradientWaveform[1,:])
         xPos_temp=interp1d(signalprobe.xPos[0,:],signalprobe.xPos[1,:])
@@ -74,31 +76,47 @@ class MRSignal():
         self.LO_Q = np.sin(2*np.pi*self.f0*self.t + np.pi/2)
         self.I = np.multiply(self.RFsignal,self.LO_I)
         self.Q = np.multiply(self.RFsignal,self.LO_Q)
+        self.LPfilter()
+        I_temp = interp1d(self.t,self.I)
+        Q_temp = interp1d(self.t, self.Q)
+        self.I_dec = I_temp(self.t_dec)
+        self.Q_dec = Q_temp(self.t_dec)
         self.calculateFFTs()
         self.calculatePhase()
-        
+
+    def LPfilter(self):
+        if self.doLowPass:
+            # self.snippets[self.snippetPointer].probes[self.probePointer].FID.I = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.I)
+            # self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q)
+            conv = np.ones(self.Nbox) / self.Nbox
+            I_temp = np.convolve(conv, self.I)
+            Q_temp = np.convolve(conv, self.Q)
+            self.I = I_temp[np.int(np.round(self.Nbox / 2)):np.int(np.round(self.Nbox / 2)) + len(self.I)]
+            self.Q = Q_temp[np.int(np.round(self.Nbox / 2)):np.int(np.round(self.Nbox / 2)) + len(self.Q)]
+
     def calculatePhase(self):
 #         self.phase = np.unwrap(2*np.arctan(self.Q/self.I))/2
-        self.phase = self.unWrapPhaseSimple(np.arctan(self.Q/self.I))
+        self.phase = self.unWrapPhaseSimple(np.arctan(self.Q_dec/self.I_dec))
         self.differentiatePhase()
         
     def differentiatePhase(self):
-        self.diffPhase=np.diff(self.phase)/self.dt
-        A = np.vstack([self.t**2, self.t, np.ones(len(self.t))]).T
+        self.diffPhase=np.diff(self.phase)/self.dt_dec
+        A = np.vstack([self.t_dec**2, self.t_dec, np.ones(len(self.t_dec))]).T
         self.c2, self.c1, self.c0 = np.linalg.lstsq(A, self.phase, rcond=None)[0]
-        self.diffPhase_fit = np.diff(np.power(self.t,2)*self.c2 + self.t*self.c1 + self.c0)/self.dt
+        self.diffPhase_fit = np.diff(np.power(self.t_dec,2)*self.c2 + self.t_dec*self.c1 + self.c0)/self.dt_dec
 
         N=15
         self.diffPhase_filtered = np.zeros(len(self.diffPhase)-N)
         self.diffPhase_fit_filtered = np.zeros(len(self.diffPhase_fit) - N)
-        for i in np.arange(0,len(self.diffPhase_filtered)):
+        for i in np.arange(0,len(self.diffPhase_filtered)): #Multiplying with matrix F
             self.diffPhase_filtered[i] = (self.diffPhase[i] - self.diffPhase[i+5] + self.diffPhase[i+10] - self.diffPhase[i+15])/4
             self.diffPhase_fit_filtered[i] = (self.diffPhase_fit[i] - self.diffPhase_fit[i + 5] + self.diffPhase_fit[i + 10] -
                                             self.diffPhase_fit[i + 15]) / 4
+        print(' ')
 
     def calculateFFTs(self):
-        self.fft_freq = np.linspace(0,0.5/(self.dt),np.int(len(self.I)/2))
-        self.fft = np.fft.fft(self.I)
+        self.fft_freq = np.linspace(0,0.5/(self.dt_dec),np.int(len(self.I_dec)/2))
+        self.fft = np.fft.fft(self.I_dec)
     
     def unWrapPhaseSimple(self,p):
         discont = np.pi/2       #Set discontinuity
@@ -172,7 +190,7 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
         self.setWindowTitle("MR signals")
         self.checkBox_2.setChecked(True)
-        self.pushButton.clicked.connect(self.updateAll)
+        self.pushButton.clicked.connect(self.updateParameters)
         self.pushButton_2.clicked.connect(self.togglePages)
         self.pushButton_3.clicked.connect(self.togglePages)
         self.pushButton_4.clicked.connect(self.addSnippet)
@@ -309,12 +327,13 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
     def setCurrentProbe(self):
         self.probePointer = self.listWidget_2.currentRow()
         self.setLineEdit()
+        self.updateRegionGraphics()
         self.plot()
         
     def setCurrentSnippet(self):
         self.snippetPointer=self.listWidget.currentRow()
         self.setLineEdit()
-        self.setRegionGraphics()
+        self.updateRegionGraphics()
         self.plot()
     
     def initSnippet(self):
@@ -342,7 +361,10 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
 #         self.snippets[self.snippetPointer].probes[self.probePointer].FID.generateRFSignal(self.Bfield, self.snippets[self.snippetPointer].probes[self.probePointer])
         self.setRegionGraphics()
         self.plot()
-    
+
+    def updateRegionGraphics(self):
+        self.region.setRegion([self.snippets[self.snippetPointer].t0*1000, self.snippets[self.snippetPointer].t1*1000])
+
     def setRegionGraphics(self):
         t0 = np.double(self.lineEdit_33.text())
         t1 = np.double(self.lineEdit_34.text())
@@ -376,18 +398,9 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         array = np.concatenate((zeros,array))
         return array
         
-    def LPfilter(self):
-        if self.snippets[self.snippetPointer].probes[self.probePointer].FID.doLowPass:
-            self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox = np.int(self.lineEdit_15.text())
-            # self.snippets[self.snippetPointer].probes[self.probePointer].FID.I = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.I)
-            # self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q)
-            conv = np.ones(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox)/self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox
-            self.snippets[self.snippetPointer].probes[self.probePointer].FID.I = np.convolve(conv,self.snippets[self.snippetPointer].probes[self.probePointer].FID.I,mode='valid')[np.int(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2):np.int(len(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t)+self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2)]
-            self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q = np.convolve(conv,self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q,mode='valid')[np.int(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2):np.int(len(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t)+self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2)]
-        
+
 
     def updateParameters(self):
-
         self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox = np.int(self.lineEdit_15.text())
         self.snippets[self.snippetPointer].probes[self.probePointer].FID.addNoise = self.checkBox_9.isChecked()
         self.snippets[self.snippetPointer].probes[self.probePointer].FID.doLowPass = self.checkBox_2.isChecked()
@@ -397,8 +410,10 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.snippets[self.snippetPointer].probes[self.probePointer].FID.dt = np.double(self.lineEdit_4.text())
         self.snippets[self.snippetPointer].t0 = np.double(self.lineEdit_33.text())/1000
         self.snippets[self.snippetPointer].t1 = np.double(self.lineEdit_34.text())/1000
-        self.snippets[self.snippetPointer].probes[self.probePointer].FID.generateRFSignal(self.Bfield,self.snippets[self.snippetPointer].probes[self.probePointer],self.snippets[self.snippetPointer].t0,self.snippets[self.snippetPointer].t1)
-        self.LPfilter()
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox = np.int(self.lineEdit_15.text())
+        t0 = self.snippets[self.snippetPointer].t0
+        t1 = self.snippets[self.snippetPointer].t1
+        self.snippets[self.snippetPointer].probes[self.probePointer].FID.generateRFSignal(self.Bfield,self.snippets[self.snippetPointer].probes[self.probePointer],t0,t1)
         self.snippets[self.snippetPointer].probes[self.probePointer].FID.calculatePhase()
         
         
@@ -424,7 +439,7 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         self.graphicsView_3.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.I,self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q,pen=pg.mkPen('r', width=1))
         
         
-        self.graphicsView_4.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t,self.snippets[self.snippetPointer].probes[self.probePointer].FID.phase,pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
+        self.graphicsView_4.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t_dec,self.snippets[self.snippetPointer].probes[self.probePointer].FID.phase,pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
 #         self.graphicsView_4.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t,self.snippets[self.snippetPointer].probes[self.probePointer].FID.c2 * self.snippets[self.snippetPointer].probes[self.probePointer].FID.t**2 + self.snippets[self.snippetPointer].probes[self.probePointer].FID.c1*self.snippets[self.snippetPointer].probes[self.probePointer].FID.t + self.snippets[self.snippetPointer].probes[self.probePointer].FID.c0,pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
         self.graphicsView_6.plot(self.snippets[self.snippetPointer].probes[self.probePointer].FID.fft_freq,20*np.log10(np.abs(self.snippets[self.snippetPointer].probes[self.probePointer].FID.fft[0:len(self.snippets[self.snippetPointer].probes[self.probePointer].FID.fft_freq)])),pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
         self.graphicsView_7.plot(self.snippets[self.snippetPointer].probes[self.probePointer].xPos[1,:],self.snippets[self.snippetPointer].probes[self.probePointer].yPos[1,:], symbol='o',symbolBrush=self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB,pen=pg.mkPen(self.snippets[self.snippetPointer].probes[self.probePointer].FID.RGB, width=1))
