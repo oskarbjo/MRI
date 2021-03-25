@@ -14,9 +14,9 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Dialog(object):
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
-        Dialog.resize(1587, 967)
+        Dialog.resize(1587, 983)
         self.stackedWidget = QtWidgets.QStackedWidget(Dialog)
-        self.stackedWidget.setGeometry(QtCore.QRect(10, 10, 1591, 931))
+        self.stackedWidget.setGeometry(QtCore.QRect(10, 10, 1591, 971))
         self.stackedWidget.setObjectName("stackedWidget")
         self.page = QtWidgets.QWidget()
         self.page.setEnabled(True)
@@ -160,7 +160,7 @@ class Ui_Dialog(object):
         self.checkBox_5.setFont(font)
         self.checkBox_5.setObjectName("checkBox_5")
         self.groupBox_2 = QtWidgets.QGroupBox(self.page)
-        self.groupBox_2.setGeometry(QtCore.QRect(820, -10, 751, 951))
+        self.groupBox_2.setGeometry(QtCore.QRect(820, -10, 751, 971))
         font = QtGui.QFont()
         font.setPointSize(8)
         self.groupBox_2.setFont(font)

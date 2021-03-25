@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1587</width>
-    <height>967</height>
+    <height>983</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -19,7 +19,7 @@
      <x>10</x>
      <y>10</y>
      <width>1591</width>
-     <height>931</height>
+     <height>971</height>
     </rect>
    </property>
    <widget class="QWidget" name="page">
@@ -446,7 +446,7 @@
        <x>820</x>
        <y>-10</y>
        <width>751</width>
-       <height>951</height>
+       <height>971</height>
       </rect>
      </property>
      <property name="font">

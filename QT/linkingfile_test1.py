@@ -1,5 +1,4 @@
 
-import numpy as np
 import test1
 
 import sys
@@ -27,10 +26,12 @@ class MRSignal():
         self.larmor = 0
         self.larmor_end = 0
         self.dt = 0.5e-9
+        self.dt_dec = 0.5e-7
         self.BW = 0
         self.Nsignals = 0
         self.T = 0
         self.t = [0]
+        self.t_dec = [0]
         self.RFsignal = [0]
         self.I = [0]
         self.Q = [0]
@@ -53,6 +54,7 @@ class MRSignal():
     def generateRFSignal(self,Bfield,signalprobe,t0,t1):
         
         self.t = np.arange(0,(t1-t0),self.dt) #Always starts from zero for each new excitation!
+        self.t_dec = np.arange(0,(t1-t0),self.dt_dec)
         Gx_temp=interp1d(Bfield.xGradientWaveform[0,:]*1e-3,Bfield.xGradientWaveform[1,:])
         Gy_temp=interp1d(Bfield.yGradientWaveform[0,:]*1e-3,Bfield.yGradientWaveform[1,:])
         xPos_temp=interp1d(signalprobe.xPos[0,:],signalprobe.xPos[1,:])
@@ -85,7 +87,15 @@ class MRSignal():
         A = np.vstack([self.t**2, self.t, np.ones(len(self.t))]).T
         self.c2, self.c1, self.c0 = np.linalg.lstsq(A, self.phase, rcond=None)[0]
         self.diffPhase_fit = np.diff(np.power(self.t,2)*self.c2 + self.t*self.c1 + self.c0)/self.dt
-        
+
+        N=15
+        self.diffPhase_filtered = np.zeros(len(self.diffPhase)-N)
+        self.diffPhase_fit_filtered = np.zeros(len(self.diffPhase_fit) - N)
+        for i in np.arange(0,len(self.diffPhase_filtered)):
+            self.diffPhase_filtered[i] = (self.diffPhase[i] - self.diffPhase[i+5] + self.diffPhase[i+10] - self.diffPhase[i+15])/4
+            self.diffPhase_fit_filtered[i] = (self.diffPhase_fit[i] - self.diffPhase_fit[i + 5] + self.diffPhase_fit[i + 10] -
+                                            self.diffPhase_fit[i + 15]) / 4
+
     def calculateFFTs(self):
         self.fft_freq = np.linspace(0,0.5/(self.dt),np.int(len(self.I)/2))
         self.fft = np.fft.fft(self.I)
@@ -149,7 +159,6 @@ class Snippet():
 class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
     
     def __init__(self):
-        
 
         super(self.__class__, self).__init__()
         self.setupUi(self)  # This is defined in design.py file automatically
@@ -163,7 +172,7 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
         
         self.setWindowTitle("MR signals")
         self.checkBox_2.setChecked(True)
-        self.pushButton.clicked.connect(self.updateParameters)
+        self.pushButton.clicked.connect(self.updateAll)
         self.pushButton_2.clicked.connect(self.togglePages)
         self.pushButton_3.clicked.connect(self.togglePages)
         self.pushButton_4.clicked.connect(self.addSnippet)
@@ -219,54 +228,56 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
             i.probes[self.probePointer].yPos = np.asarray([np.linspace(0,25e-3,100),np.ones(100)*y])
         
     def calculatePos(self):
-        length = len(self.snippets[0].probes[0].FID.diffPhase_fit)+len(self.snippets[1].probes[0].FID.diffPhase_fit)+len(self.snippets[2].probes[0].FID.diffPhase_fit)                                                                                                     
-        mat=np.matrix((np.zeros(length),np.zeros(length),np.zeros(length)))
+        length = len(self.snippets[0].probes[0].FID.diffPhase_fit_filtered) + len(
+            self.snippets[1].probes[0].FID.diffPhase_fit_filtered) + len(
+            self.snippets[2].probes[0].FID.diffPhase_fit_filtered)
+        mat = np.matrix((np.zeros(length), np.zeros(length), np.zeros(length)))
 
-        for i in np.arange(0,len(self.snippets[0].probes)-1):
-            a = self.snippets[0].probes[i].FID.diffPhase_fit
-            b = self.snippets[1].probes[i].FID.diffPhase_fit
-            c = self.snippets[2].probes[i].FID.diffPhase_fit
-            conc = np.concatenate((a,b,c))
-            mat[i,:] = conc
+        for i in np.arange(0, len(self.snippets[0].probes) - 1):
+            a = self.snippets[0].probes[i].FID.diffPhase_fit_filtered
+            b = self.snippets[1].probes[i].FID.diffPhase_fit_filtered
+            c = self.snippets[2].probes[i].FID.diffPhase_fit_filtered
+            conc = np.concatenate((a, b, c))
+            mat[i, :] = conc
         diffSnippets = mat.transpose()
- 
-        x1 = self.snippets[0].probes[0].xPos[1,0]
-        x2 = self.snippets[0].probes[1].xPos[1,0]
-        x3 = self.snippets[0].probes[2].xPos[1,0]
-        y1 = self.snippets[0].probes[0].yPos[1,0]
-        y2 = self.snippets[0].probes[1].yPos[1,0]
-        y3 = self.snippets[0].probes[2].yPos[1,0]
-        r1 = [x1,y1,1]  #append 1
-        r2 = [x2,y2,1]  #append 1
-        r3 = [x3,y3,1]  #append 1
-        refPosMatrix = np.linalg.inv(np.matrix([r1,r2,r3]).transpose())
-        FGg=np.multiply(1/self.snippets[0].probes[0].FID.gyroMagneticRatio,np.matmul(diffSnippets,refPosMatrix))
-        FG = FGg[:,0:2]
-        Fg = FGg[:,2]
+
+        x1 = self.snippets[0].probes[0].xPos[1, 0]
+        x2 = self.snippets[0].probes[1].xPos[1, 0]
+        x3 = self.snippets[0].probes[2].xPos[1, 0]
+        y1 = self.snippets[0].probes[0].yPos[1, 0]
+        y2 = self.snippets[0].probes[1].yPos[1, 0]
+        y3 = self.snippets[0].probes[2].yPos[1, 0]
+        r1 = [x1, y1, 1]  # append 1
+        r2 = [x2, y2, 1]  # append 1
+        r3 = [x3, y3, 1]  # append 1
+        refPosMatrix = np.linalg.inv(np.matrix([r1, r2, r3]).transpose())
+        FGg = np.multiply(1 / self.snippets[0].probes[0].FID.gyroMagneticRatio, np.matmul(diffSnippets, refPosMatrix))
+        FG = FGg[:, 0:2]
+        Fg = FGg[:, 2]
         FGplus = np.linalg.pinv(FG)
         solveInd = 3
-        a = self.snippets[0].probes[solveInd].FID.diffPhase_fit
-        b = self.snippets[1].probes[solveInd].FID.diffPhase_fit
-        c = self.snippets[2].probes[solveInd].FID.diffPhase_fit
-        conc2 = np.concatenate((a,b,c))
+        a = self.snippets[0].probes[solveInd].FID.diffPhase_fit_filtered
+        b = self.snippets[1].probes[solveInd].FID.diffPhase_fit_filtered
+        c = self.snippets[2].probes[solveInd].FID.diffPhase_fit_filtered
+        conc2 = np.concatenate((a, b, c))
         conc2 = np.matrix(conc2.transpose())
         Dfi = conc2.transpose()
         plt.figure()
         plt.plot(Dfi)
         plt.show()
-        r = np.matmul(FGplus,(1/self.snippets[0].probes[0].FID.gyroMagneticRatio) * np.matrix(Dfi - Fg))
-        
+        r = np.matmul(FGplus, (1 / self.snippets[0].probes[0].FID.gyroMagneticRatio) * np.matrix(Dfi - Fg))
+
         print(r)
     
     def setupSnippets(self): #dummy function
         self.addSnippet()
         self.addSnippet()
         self.snippets[0].t0=0.001
-        self.snippets[0].t1=0.002
+        self.snippets[0].t1=0.0015
         self.snippets[1].t0=0.005
-        self.snippets[1].t1=0.006
+        self.snippets[1].t1=0.0055
         self.snippets[2].t0=0.009
-        self.snippets[2].t1=0.01
+        self.snippets[2].t1=0.0095
 
 
         
@@ -368,8 +379,8 @@ class Window(QtWidgets.QMainWindow, test1.Ui_Dialog):
     def LPfilter(self):
         if self.snippets[self.snippetPointer].probes[self.probePointer].FID.doLowPass:
             self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox = np.int(self.lineEdit_15.text())
-            self.snippets[self.snippetPointer].probes[self.probePointer].FID.I = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.I)
-            self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q)
+            # self.snippets[self.snippetPointer].probes[self.probePointer].FID.I = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.I)
+            # self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q = self.zeroPad(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q)
             conv = np.ones(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox)/self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox
             self.snippets[self.snippetPointer].probes[self.probePointer].FID.I = np.convolve(conv,self.snippets[self.snippetPointer].probes[self.probePointer].FID.I,mode='valid')[np.int(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2):np.int(len(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t)+self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2)]
             self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q = np.convolve(conv,self.snippets[self.snippetPointer].probes[self.probePointer].FID.Q,mode='valid')[np.int(self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2):np.int(len(self.snippets[self.snippetPointer].probes[self.probePointer].FID.t)+self.snippets[self.snippetPointer].probes[self.probePointer].FID.Nbox/2)]
