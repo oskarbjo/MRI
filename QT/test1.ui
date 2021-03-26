@@ -385,7 +385,7 @@
       <rect>
        <x>20</x>
        <y>830</y>
-       <width>56</width>
+       <width>91</width>
        <height>17</height>
       </rect>
      </property>
@@ -395,7 +395,7 @@
       </font>
      </property>
      <property name="text">
-      <string>Update</string>
+      <string>Update single FID</string>
      </property>
     </widget>
     <widget class="QCheckBox" name="checkBox_6">
@@ -607,6 +607,24 @@
        <string>Calculate</string>
       </property>
      </widget>
+    </widget>
+    <widget class="QPushButton" name="pushButton_9">
+     <property name="geometry">
+      <rect>
+       <x>20</x>
+       <y>850</y>
+       <width>91</width>
+       <height>17</height>
+      </rect>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>6</pointsize>
+      </font>
+     </property>
+     <property name="text">
+      <string>Update all</string>
+     </property>
     </widget>
    </widget>
    <widget class="QWidget" name="page_2">
